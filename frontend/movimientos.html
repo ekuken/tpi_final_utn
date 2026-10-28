@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Movimientos de stock - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Movimientos de stock</h1>
+                <p>Registrá entradas y salidas de mercadería, y consultá el historial</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3>Registrar movimiento</h3>
+            <form id="form-movimiento">
+                <div class="form-grid">
+                    <div>
+                        <label for="mov-producto">Producto</label>
+                        <select id="mov-producto" required></select>
+                    </div>
+                    <div>
+                        <label for="mov-tipo">Tipo de movimiento</label>
+                        <select id="mov-tipo" required>
+                            <option value="entrada">Entrada</option>
+                            <option value="salida">Salida</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="mov-cantidad">Cantidad</label>
+                        <input type="number" id="mov-cantidad" min="1" max="100000" step="1" required>
+                    </div>
+                    <div>
+                        <label for="mov-motivo">Motivo / observación</label>
+                        <input type="text" id="mov-motivo" maxlength="150" placeholder="Ej: compra a proveedor, venta, ajuste...">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" id="btn-registrar">Registrar movimiento</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <h3 style="margin:0;">Historial de movimientos</h3>
+                <select id="filtro-producto" style="max-width:260px;">
+                    <option value="">Todos los productos</option>
+                </select>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Producto</th>
+                        <th>Tipo</th>
+                        <th>Cantidad</th>
+                        <th>Stock resultante</th>
+                        <th>Motivo</th>
+                        <th>Usuario</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-movimientos">
+                    <tr><td colspan="7" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+    initLayout("movimientos");
+
+    let productos = [];
+
+    async function cargarProductosSelect() {
+        productos = await Api.get("/productos");
+        const options = productos
+            .map((p) => `<option value="${p.id}">${escapeHtml(p.codigo)} - ${escapeHtml(p.nombre)} (stock: ${p.stock})</option>`)
+            .join("");
+
+        document.getElementById("mov-producto").innerHTML = options;
+        document.getElementById("filtro-producto").innerHTML =
+            '<option value="">Todos los productos</option>' + options;
+    }
+
+    async function cargarMovimientos(productoId) {
+        try {
+            const path = productoId ? `/movimientos/producto/${productoId}` : "/movimientos";
+            const movimientos = await Api.get(path);
+            const tbody = document.getElementById("tbody-movimientos");
+
+            if (movimientos.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Todavía no hay movimientos registrados</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = movimientos.map((m) => `
+                <tr>
+                    <td>${formatearFecha(m.fecha)}</td>
+                    <td>${escapeHtml(m.productoCodigo)} - ${escapeHtml(m.productoNombre)}</td>
+                    <td><span class="badge ${m.tipo === "ENTRADA" ? "ok" : "danger"}">${m.tipo}</span></td>
+                    <td>${m.cantidad}</td>
+                    <td>${m.stockResultante}</td>
+                    <td>${escapeHtml(m.motivo || "-")}</td>
+                    <td>${escapeHtml(m.usuarioNombre || "-")}</td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    document.getElementById("filtro-producto").addEventListener("change", (e) => {
+        cargarMovimientos(e.target.value || null);
+    });
+
+    document.getElementById("form-movimiento").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const productoId = Number(document.getElementById("mov-producto").value);
+        const tipo = document.getElementById("mov-tipo").value;
+        const cantidad = parseInt(document.getElementById("mov-cantidad").value, 10);
+        const motivo = document.getElementById("mov-motivo").value.trim();
+
+        const payload = { productoId, cantidad, motivo };
+
+        try {
+            await Api.post(`/movimientos/${tipo}`, payload);
+            mostrarExito("exito", "Movimiento registrado correctamente");
+            document.getElementById("form-movimiento").reset();
+            await cargarProductosSelect();
+            await cargarMovimientos(document.getElementById("filtro-producto").value || null);
+            actualizarAlertaStock();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    });
+
+    (async function init() {
+        try {
+            await cargarProductosSelect();
+            await cargarMovimientos();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    })();
+</script>
+
+</body>
+</html>

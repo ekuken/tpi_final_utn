@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reportes - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Reportes</h1>
+                <p>Información consolidada del estado del inventario</p>
+            </div>
+            <button class="secondary" id="btn-imprimir">🖨️ Imprimir / exportar PDF</button>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+
+        <div class="stat-grid cols-4" id="stat-grid"></div>
+
+        <div class="card">
+            <h3>Detalle de productos con stock bajo (stock ≤ stock mínimo)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Producto</th>
+                        <th>Categoría</th>
+                        <th>Proveedor</th>
+                        <th>Stock actual</th>
+                        <th>Stock mínimo</th>
+                        <th>Costo</th>
+                        <th>Venta</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-reporte">
+                    <tr><td colspan="8" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+    initLayout("reportes");
+
+    document.getElementById("btn-imprimir").addEventListener("click", () => window.print());
+
+    async function cargarReporte() {
+        try {
+            const reporte = await Api.get("/reportes/inventario");
+
+            document.getElementById("stat-grid").innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${reporte.totalProductos}</div>
+                    <div class="stat-label">Productos activos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${reporte.totalUnidadesEnStock}</div>
+                    <div class="stat-label">Unidades en stock</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${formatearMoneda(reporte.valorInventarioCosto)}</div>
+                    <div class="stat-label">Valor del inventario a precio de costo</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${formatearMoneda(reporte.valorTotalInventario)}</div>
+                    <div class="stat-label">Valor del inventario a precio de venta</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-value">${formatearMoneda(reporte.gananciaPotencial)}</div>
+                    <div class="stat-label">Ganancia potencial (venta − costo)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${formatearMoneda(reporte.ventasDelMes)}</div>
+                    <div class="stat-label">Ventas del mes (${reporte.cantidadVentasDelMes})</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${reporte.ordenesCompraPendientes}</div>
+                    <div class="stat-label">Órdenes de compra pendientes</div>
+                </div>
+                <div class="stat-card ${reporte.productosSinStock > 0 ? "danger" : "warning"}">
+                    <div class="stat-value">${reporte.productosConStockBajo}</div>
+                    <div class="stat-label">Productos con stock bajo (${reporte.productosSinStock} sin stock)</div>
+                </div>
+            `;
+
+            const tbody = document.getElementById("tbody-reporte");
+            if (reporte.detalleStockBajo.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No hay productos con stock bajo 🎉</td></tr>`;
+            } else {
+                tbody.innerHTML = reporte.detalleStockBajo.map((p) => `
+                    <tr>
+                        <td>${escapeHtml(p.codigo)}</td>
+                        <td>${escapeHtml(p.nombre)}</td>
+                        <td>${escapeHtml(p.categoriaNombre || "-")}</td>
+                        <td>${escapeHtml(p.proveedorNombre || "-")}</td>
+                        <td><span class="badge ${p.stock === 0 ? "danger" : "warn"}">${p.stock}</span></td>
+                        <td>${p.stockMinimo}</td>
+                        <td>${formatearMoneda(p.precioCosto)}</td>
+                        <td>${formatearMoneda(p.precio)}</td>
+                    </tr>
+                `).join("");
+            }
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    cargarReporte();
+</script>
+
+</body>
+</html>

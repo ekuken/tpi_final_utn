@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Categorías - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Categorías</h1>
+                <p>Administrá las categorías de productos</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3 id="form-titulo">Nueva categoría</h3>
+            <form id="form-categoria">
+                <input type="hidden" id="categoria-id">
+                <div class="form-grid">
+                    <div>
+                        <label for="categoria-nombre">Nombre</label>
+                        <input type="text" id="categoria-nombre" maxlength="50" required>
+                    </div>
+                    <div>
+                        <label for="categoria-descripcion">Descripción</label>
+                        <input type="text" id="categoria-descripcion" maxlength="150">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" id="btn-guardar">Guardar</button>
+                    <button type="button" class="secondary hidden" id="btn-cancelar">Cancelar edición</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <h3 style="margin:0;">Listado de categorías</h3>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>Nombre</th><th>Descripción</th><th class="text-right">Acciones</th></tr>
+                </thead>
+                <tbody id="tbody-categorias">
+                    <tr><td colspan="3" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+    initLayout("categorias");
+
+    const form = document.getElementById("form-categoria");
+    const btnCancelar = document.getElementById("btn-cancelar");
+    let categorias = [];
+
+    async function cargarCategorias() {
+        try {
+            categorias = await Api.get("/categorias");
+            const tbody = document.getElementById("tbody-categorias");
+
+            if (categorias.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="empty-state">No hay categorías cargadas todavía</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = categorias.map((c) => `
+                <tr>
+                    <td>${escapeHtml(c.nombre)}</td>
+                    <td>${escapeHtml(c.descripcion || "-")}</td>
+                    <td class="text-right table-actions" style="justify-content:flex-end;">
+                        <button class="secondary" onclick="editarCategoria(${c.id})">Editar</button>
+                        <button class="danger" onclick="eliminarCategoria(${c.id})">Eliminar</button>
+                    </td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    function editarCategoria(id) {
+        const c = categorias.find((cat) => cat.id === id);
+        if (!c) return;
+
+        document.getElementById("categoria-id").value = c.id;
+        document.getElementById("categoria-nombre").value = c.nombre;
+        document.getElementById("categoria-descripcion").value = c.descripcion || "";
+        document.getElementById("form-titulo").textContent = "Editar categoría";
+        btnCancelar.classList.remove("hidden");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function resetForm() {
+        form.reset();
+        document.getElementById("categoria-id").value = "";
+        document.getElementById("form-titulo").textContent = "Nueva categoría";
+        btnCancelar.classList.add("hidden");
+    }
+
+    btnCancelar.addEventListener("click", resetForm);
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const id = document.getElementById("categoria-id").value;
+        const payload = {
+            nombre: document.getElementById("categoria-nombre").value.trim(),
+            descripcion: document.getElementById("categoria-descripcion").value.trim(),
+        };
+
+        try {
+            if (id) {
+                await Api.put(`/categorias/${id}`, payload);
+                mostrarExito("exito", "Categoría actualizada correctamente");
+            } else {
+                await Api.post("/categorias", payload);
+                mostrarExito("exito", "Categoría creada correctamente");
+            }
+            resetForm();
+            cargarCategorias();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    });
+
+    async function eliminarCategoria(id) {
+        if (!confirm("¿Seguro que querés eliminar esta categoría?")) return;
+        try {
+            await Api.del(`/categorias/${id}`);
+            mostrarExito("exito", "Categoría eliminada");
+            cargarCategorias();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    cargarCategorias();
+</script>
+
+</body>
+</html>

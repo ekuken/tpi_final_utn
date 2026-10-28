@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Órdenes de compra - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Órdenes de compra</h1>
+                <p>Pedidos a proveedores. Al recibir una orden se suma el stock y se actualiza el precio de costo.</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3>Nueva orden de compra</h3>
+            <form id="form-orden">
+                <div class="form-grid" style="margin-bottom:1rem;">
+                    <div>
+                        <label for="orden-proveedor">Proveedor</label>
+                        <select id="orden-proveedor" required></select>
+                    </div>
+                    <div>
+                        <label for="orden-observaciones">Observaciones (opcional)</label>
+                        <input type="text" id="orden-observaciones" maxlength="150" placeholder="Ej: entregar el lunes">
+                    </div>
+                </div>
+
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Cantidad</th>
+                            <th>Costo unit.</th>
+                            <th>Subtotal</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-items"></tbody>
+                </table>
+
+                <div class="total-linea">
+                    <span class="text-muted">Total</span>
+                    <strong id="orden-total">$ 0,00</strong>
+                </div>
+
+                <div class="form-actions" style="flex-wrap:wrap;">
+                    <button type="button" class="secondary" id="btn-agregar">+ Agregar producto</button>
+                    <button type="button" class="secondary" id="btn-stock-bajo">⚠️ Agregar los que tienen stock bajo</button>
+                    <button type="submit" id="btn-guardar">Crear orden</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Órdenes registradas</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>N°</th>
+                        <th>Fecha</th>
+                        <th>Proveedor</th>
+                        <th>Productos</th>
+                        <th>Total</th>
+                        <th>Estado</th>
+                        <th class="text-right">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-ordenes">
+                    <tr><td colspan="7" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/items.js"></script>
+<script>
+    initLayout("ordenes");
+
+    const selProveedor = document.getElementById("orden-proveedor");
+    let ordenes = [];
+
+    function opcion(p) {
+        return `<option value="${p.id}">${escapeHtml(p.codigo)} - ${escapeHtml(p.nombre)} (stock: ${p.stock})</option>`;
+    }
+
+    const editor = new EditorItems({
+        tbody: document.getElementById("tbody-items"),
+        totalEl: document.getElementById("orden-total"),
+        precioEditable: true,
+        precioDe: (p) => p.precioCosto,
+        opciones: (productos) => {
+            const proveedorId = Number(selProveedor.value);
+            const propios = productos.filter((p) => p.proveedorId === proveedorId);
+            const otros = productos.filter((p) => p.proveedorId !== proveedorId);
+            if (propios.length === 0) return otros.map(opcion).join("");
+            return `<optgroup label="De este proveedor">${propios.map(opcion).join("")}</optgroup>`
+                + (otros.length ? `<optgroup label="Otros productos">${otros.map(opcion).join("")}</optgroup>` : "");
+        },
+    });
+
+    function cantidadSugerida(p) {
+        return Math.max(p.stockMinimo * 2 - p.stock, 1);
+    }
+
+    async function agregarStockBajoDelProveedor() {
+        const proveedorId = Number(selProveedor.value);
+        const stockBajo = (await Api.get("/productos/stock-bajo"))
+            .filter((p) => p.proveedorId === proveedorId && !editor.tieneProducto(p.id));
+
+        if (stockBajo.length === 0) {
+            mostrarExito("exito", "Este proveedor no tiene otros productos con stock bajo");
+            return;
+        }
+        const items = editor.obtenerItems();
+        if (items.length === 1 && !items[0].productoId) editor.limpiar();
+        stockBajo.forEach((p) => editor.agregar(p.id, cantidadSugerida(p), Number(p.precioCosto)));
+    }
+
+    async function cargarDatos() {
+        const [proveedores, productos] = await Promise.all([Api.get("/proveedores"), Api.get("/productos")]);
+        selProveedor.innerHTML = '<option value="">-- Elegí un proveedor --</option>' +
+            proveedores.map((p) => `<option value="${p.id}">${escapeHtml(p.nombre)}</option>`).join("");
+        editor.setProductos(productos);
+    }
+
+    async function cargarOrdenes() {
+        try {
+            ordenes = await Api.get("/ordenes-compra");
+            const tbody = document.getElementById("tbody-ordenes");
+
+            if (ordenes.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Todavía no hay órdenes de compra</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = ordenes.map((o) => `
+                <tr>
+                    <td>#${o.id}</td>
+                    <td>${formatearFecha(o.fechaCreacion)}</td>
+                    <td>${escapeHtml(o.proveedorNombre)}</td>
+                    <td>${o.items.reduce((s, i) => s + i.cantidad, 0)} u. (${o.items.length} prod.)</td>
+                    <td>${formatearMoneda(o.total)}</td>
+                    <td>${badgeEstado(o.estado)}</td>
+                    <td class="text-right table-actions" style="justify-content:flex-end;">
+                        <button class="secondary" onclick="verOrden(${o.id})">Ver</button>
+                        ${o.estado === "PENDIENTE" ? `
+                            <button class="success" onclick="recibirOrden(${o.id})">Recibir</button>
+                            <button class="danger" onclick="cancelarOrden(${o.id})">Cancelar</button>` : ""}
+                    </td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    function verOrden(id) {
+        const o = ordenes.find((orden) => orden.id === id);
+        if (!o) return;
+        abrirModal(`Orden de compra #${o.id}`, `
+            <p class="text-muted" style="margin-top:0;">
+                ${escapeHtml(o.proveedorNombre)} · Creada el ${formatearFecha(o.fechaCreacion)} por ${escapeHtml(o.usuarioNombre)}
+                ${o.fechaRecepcion ? ` · Recibida el ${formatearFecha(o.fechaRecepcion)}` : ""} · ${badgeEstado(o.estado)}
+            </p>
+            ${o.observaciones ? `<p><strong>Observaciones:</strong> ${escapeHtml(o.observaciones)}</p>` : ""}
+            ${tablaDetalleItems(o.items, "Costo unit.")}
+            <div class="total-linea"><span class="text-muted">Total</span><strong>${formatearMoneda(o.total)}</strong></div>
+        `);
+    }
+
+    async function recibirOrden(id) {
+        if (!confirm(`¿Confirmás que llegó la mercadería de la orden #${id}? Se va a sumar al stock.`)) return;
+        await cambiarEstado(id, "recibir", `Orden #${id} recibida. El stock y los costos fueron actualizados.`);
+    }
+
+    async function cancelarOrden(id) {
+        if (!confirm(`¿Cancelar la orden #${id}?`)) return;
+        await cambiarEstado(id, "cancelar", `Orden #${id} cancelada.`);
+    }
+
+    async function cambiarEstado(id, accion, mensaje) {
+        ocultarAlerta("alerta");
+        try {
+            await Api.post(`/ordenes-compra/${id}/${accion}`);
+            mostrarExito("exito", mensaje);
+            await Promise.all([cargarOrdenes(), Api.get("/productos").then((p) => editor.setProductos(p))]);
+            actualizarAlertaStock();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    selProveedor.addEventListener("change", () => editor.render());
+    document.getElementById("btn-agregar").addEventListener("click", () => editor.agregar());
+    document.getElementById("btn-stock-bajo").addEventListener("click", async () => {
+        ocultarAlerta("alerta");
+        if (!selProveedor.value) {
+            mostrarError("alerta", "Primero elegí un proveedor");
+            return;
+        }
+        try {
+            await agregarStockBajoDelProveedor();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    });
+
+    document.getElementById("form-orden").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const items = editor.obtenerItems();
+        if (items.length === 0) {
+            mostrarError("alerta", "Agregá al menos un producto a la orden");
+            return;
+        }
+
+        const payload = {
+            proveedorId: Number(selProveedor.value),
+            observaciones: document.getElementById("orden-observaciones").value.trim(),
+            items: items.map((i) => ({ productoId: i.productoId, cantidad: i.cantidad, costoUnitario: i.precio })),
+        };
+
+        const boton = document.getElementById("btn-guardar");
+        boton.disabled = true;
+        try {
+            const orden = await Api.post("/ordenes-compra", payload);
+            mostrarExito("exito", `Orden #${orden.id} creada. Cuando llegue la mercadería, tocá "Recibir".`);
+            document.getElementById("form-orden").reset();
+            editor.limpiar();
+            editor.agregar();
+            await cargarOrdenes();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        } finally {
+            boton.disabled = false;
+        }
+    });
+
+    (async function init() {
+        try {
+            await cargarDatos();
+
+            const proveedorId = new URLSearchParams(location.search).get("proveedorId");
+            if (proveedorId) {
+                selProveedor.value = proveedorId;
+                editor.render();
+                await agregarStockBajoDelProveedor();
+            } else {
+                editor.agregar();
+            }
+
+            await cargarOrdenes();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    })();
+</script>
+
+</body>
+</html>

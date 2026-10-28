@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Productos - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Productos</h1>
+                <p>Alta, baja, modificación y consulta de productos</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3 id="form-titulo">Nuevo producto</h3>
+            <form id="form-producto">
+                <input type="hidden" id="producto-id">
+                <div class="form-grid">
+                    <div>
+                        <label for="producto-codigo">Código</label>
+                        <input type="text" id="producto-codigo" maxlength="20" required>
+                    </div>
+                    <div>
+                        <label for="producto-nombre">Nombre</label>
+                        <input type="text" id="producto-nombre" maxlength="100" required>
+                    </div>
+                    <div>
+                        <label for="producto-precio-costo">Precio de costo</label>
+                        <input type="number" id="producto-precio-costo" max="99999999.99" min="0" step="0.01" value="0">
+                    </div>
+                    <div>
+                        <label for="producto-precio">Precio de venta <span id="margen-preview" class="text-muted"></span></label>
+                        <input type="number" id="producto-precio" max="99999999.99" min="0" step="0.01" required>
+                    </div>
+                    <div id="grupo-stock-inicial">
+                        <label for="producto-stock-inicial">Stock inicial</label>
+                        <input type="number" id="producto-stock-inicial" min="0" max="1000000" step="1" value="0">
+                    </div>
+                    <div>
+                        <label for="producto-stock-minimo">Stock mínimo</label>
+                        <input type="number" id="producto-stock-minimo" min="0" max="1000000" step="1" value="0">
+                    </div>
+                    <div>
+                        <label for="producto-categoria">Categoría</label>
+                        <select id="producto-categoria"><option value="">-- Sin categoría --</option></select>
+                    </div>
+                    <div>
+                        <label for="producto-proveedor">Proveedor</label>
+                        <select id="producto-proveedor"><option value="">-- Sin proveedor --</option></select>
+                    </div>
+                    <div style="grid-column: 1 / -1;">
+                        <label for="producto-descripcion">Descripción</label>
+                        <input type="text" id="producto-descripcion" maxlength="150">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Guardar</button>
+                    <button type="button" class="secondary hidden" id="btn-cancelar">Cancelar edición</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="toolbar">
+                <h3 style="margin:0;">Listado de productos</h3>
+                <input type="search" id="buscador" placeholder="Buscar por nombre...">
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Nombre</th>
+                        <th>Categoría</th>
+                        <th>Proveedor</th>
+                        <th>Costo</th>
+                        <th>Venta</th>
+                        <th>Margen</th>
+                        <th>Stock</th>
+                        <th class="text-right">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-productos">
+                    <tr><td colspan="9" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+    initLayout("productos");
+
+    const form = document.getElementById("form-producto");
+    const btnCancelar = document.getElementById("btn-cancelar");
+    const grupoStockInicial = document.getElementById("grupo-stock-inicial");
+    let categorias = [];
+    let proveedores = [];
+    let productosCargados = [];
+
+    async function cargarSelects() {
+        [categorias, proveedores] = await Promise.all([
+            Api.get("/categorias"),
+            Api.get("/proveedores"),
+        ]);
+
+        const selCategoria = document.getElementById("producto-categoria");
+        const selProveedor = document.getElementById("producto-proveedor");
+
+        selCategoria.innerHTML = '<option value="">-- Sin categoría --</option>' +
+            categorias.map((c) => `<option value="${c.id}">${escapeHtml(c.nombre)}</option>`).join("");
+
+        selProveedor.innerHTML = '<option value="">-- Sin proveedor --</option>' +
+            proveedores.map((p) => `<option value="${p.id}">${escapeHtml(p.nombre)}</option>`).join("");
+    }
+
+    async function cargarProductos(filtroNombre) {
+        try {
+            const query = filtroNombre ? `?nombre=${encodeURIComponent(filtroNombre)}` : "";
+            productosCargados = await Api.get(`/productos${query}`);
+            const productos = productosCargados;
+            const tbody = document.getElementById("tbody-productos");
+
+            if (productos.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No se encontraron productos</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = productos.map((p) => `
+                <tr>
+                    <td>${escapeHtml(p.codigo)}</td>
+                    <td>${escapeHtml(p.nombre)}</td>
+                    <td>${escapeHtml(p.categoriaNombre || "-")}</td>
+                    <td>${escapeHtml(p.proveedorNombre || "-")}</td>
+                    <td>${formatearMoneda(p.precioCosto)}</td>
+                    <td>${formatearMoneda(p.precio)}</td>
+                    <td>${textoMargen(p.margen)}</td>
+                    <td>
+                        <span class="badge ${p.stock === 0 ? "danger" : p.stockBajo ? "warn" : "ok"}">${p.stock}</span>
+                    </td>
+                    <td class="text-right table-actions" style="justify-content:flex-end;">
+                        <button class="secondary" onclick="editarProducto(${p.id})">Editar</button>
+                        <button class="danger" onclick="eliminarProducto(${p.id})">Eliminar</button>
+                    </td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    function editarProducto(id) {
+        const p = productosCargados.find((prod) => prod.id === id);
+        if (!p) return;
+
+        document.getElementById("producto-id").value = p.id;
+        document.getElementById("producto-codigo").value = p.codigo;
+        document.getElementById("producto-nombre").value = p.nombre;
+        document.getElementById("producto-descripcion").value = p.descripcion || "";
+        document.getElementById("producto-precio").value = p.precio;
+        document.getElementById("producto-precio-costo").value = p.precioCosto;
+        actualizarMargenPreview();
+        document.getElementById("producto-stock-minimo").value = p.stockMinimo;
+        document.getElementById("producto-categoria").value = p.categoriaId || "";
+        document.getElementById("producto-proveedor").value = p.proveedorId || "";
+        document.getElementById("form-titulo").textContent = "Editar producto";
+        grupoStockInicial.classList.add("hidden");
+        btnCancelar.classList.remove("hidden");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function textoMargen(margen) {
+        if (margen === null || margen === undefined) return '<span class="text-muted">-</span>';
+        const clase = margen < 0 ? "text-danger" : "text-success";
+        return `<span class="${clase}">${Number(margen).toLocaleString("es-AR")}%</span>`;
+    }
+
+    function actualizarMargenPreview() {
+        const costo = parseFloat(document.getElementById("producto-precio-costo").value);
+        const venta = parseFloat(document.getElementById("producto-precio").value);
+        const preview = document.getElementById("margen-preview");
+        preview.innerHTML = costo > 0 && venta >= 0
+            ? "· margen " + textoMargen(Math.round((venta - costo) / costo * 1000) / 10)
+            : "";
+    }
+
+    document.getElementById("producto-precio-costo").addEventListener("input", actualizarMargenPreview);
+    document.getElementById("producto-precio").addEventListener("input", actualizarMargenPreview);
+
+    function resetForm() {
+        form.reset();
+        actualizarMargenPreview();
+        document.getElementById("producto-id").value = "";
+        document.getElementById("form-titulo").textContent = "Nuevo producto";
+        grupoStockInicial.classList.remove("hidden");
+        btnCancelar.classList.add("hidden");
+    }
+
+    btnCancelar.addEventListener("click", resetForm);
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const id = document.getElementById("producto-id").value;
+        const payload = {
+            codigo: document.getElementById("producto-codigo").value.trim(),
+            nombre: document.getElementById("producto-nombre").value.trim(),
+            descripcion: document.getElementById("producto-descripcion").value.trim(),
+            precio: parseFloat(document.getElementById("producto-precio").value),
+            precioCosto: parseFloat(document.getElementById("producto-precio-costo").value || "0"),
+            stockMinimo: parseInt(document.getElementById("producto-stock-minimo").value || "0", 10),
+            categoriaId: document.getElementById("producto-categoria").value
+                ? Number(document.getElementById("producto-categoria").value) : null,
+            proveedorId: document.getElementById("producto-proveedor").value
+                ? Number(document.getElementById("producto-proveedor").value) : null,
+        };
+
+        if (!id) {
+            payload.stockInicial = parseInt(document.getElementById("producto-stock-inicial").value || "0", 10);
+        }
+
+        try {
+            if (id) {
+                await Api.put(`/productos/${id}`, payload);
+                mostrarExito("exito", "Producto actualizado correctamente");
+            } else {
+                await Api.post("/productos", payload);
+                mostrarExito("exito", "Producto creado correctamente");
+            }
+            resetForm();
+            cargarProductos();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    });
+
+    async function eliminarProducto(id) {
+        if (!confirm("¿Seguro que querés dar de baja este producto?")) return;
+        try {
+            await Api.del(`/productos/${id}`);
+            mostrarExito("exito", "Producto dado de baja");
+            cargarProductos();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    let debounceTimer;
+    document.getElementById("buscador").addEventListener("input", (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => cargarProductos(e.target.value.trim()), 300);
+    });
+
+    (async function init() {
+        try {
+            await cargarSelects();
+            await cargarProductos();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    })();
+</script>
+
+</body>
+</html>

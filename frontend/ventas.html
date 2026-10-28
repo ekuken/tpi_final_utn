@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ventas - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Ventas</h1>
+                <p>Registrá ventas con uno o varios productos. El stock se descuenta automáticamente.</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3>Nueva venta</h3>
+            <form id="form-venta">
+                <div class="form-grid" style="margin-bottom:1rem;">
+                    <div>
+                        <label for="venta-cliente">Cliente (opcional)</label>
+                        <input type="text" id="venta-cliente" maxlength="80" placeholder="Ej: Consumidor final">
+                    </div>
+                </div>
+
+                <table class="items-table">
+                    <thead>
+                        <tr>
+                            <th>Producto</th>
+                            <th>Cantidad</th>
+                            <th>Precio unit.</th>
+                            <th>Subtotal</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tbody-items"></tbody>
+                </table>
+
+                <div class="total-linea">
+                    <span class="text-muted">Total</span>
+                    <strong id="venta-total">$ 0,00</strong>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="secondary" id="btn-agregar">+ Agregar producto</button>
+                    <button type="submit" id="btn-confirmar">Confirmar venta</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Historial de ventas</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>N°</th>
+                        <th>Fecha</th>
+                        <th>Cliente</th>
+                        <th>Productos</th>
+                        <th>Total</th>
+                        <th>Vendedor</th>
+                        <th>Estado</th>
+                        <th class="text-right">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tbody-ventas">
+                    <tr><td colspan="8" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/items.js"></script>
+<script>
+    initLayout("ventas");
+
+    let ventas = [];
+
+    const editor = new EditorItems({
+        tbody: document.getElementById("tbody-items"),
+        totalEl: document.getElementById("venta-total"),
+        precioEditable: false,
+        precioDe: (p) => p.precio,
+        avisarSinStock: true,
+        opciones: (productos) => productos.map((p) => `
+            <option value="${p.id}" ${p.stock === 0 ? "disabled" : ""}>
+                ${escapeHtml(p.codigo)} - ${escapeHtml(p.nombre)} (${p.stock === 0 ? "sin stock" : "stock: " + p.stock})
+            </option>`).join(""),
+    });
+
+    async function cargarProductos() {
+        editor.setProductos(await Api.get("/productos"));
+    }
+
+    async function cargarVentas() {
+        try {
+            ventas = await Api.get("/ventas");
+            const tbody = document.getElementById("tbody-ventas");
+
+            if (ventas.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Todavía no hay ventas registradas</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = ventas.map((v) => `
+                <tr>
+                    <td>#${v.id}</td>
+                    <td>${formatearFecha(v.fecha)}</td>
+                    <td>${escapeHtml(v.cliente || "-")}</td>
+                    <td>${v.items.reduce((s, i) => s + i.cantidad, 0)} u. (${v.items.length} prod.)</td>
+                    <td>${formatearMoneda(v.total)}</td>
+                    <td>${escapeHtml(v.usuarioNombre)}</td>
+                    <td>${badgeEstado(v.estado)}</td>
+                    <td class="text-right table-actions" style="justify-content:flex-end;">
+                        <button class="secondary" onclick="verVenta(${v.id})">Ver</button>
+                        ${Api.isAdmin() && v.estado === "CONFIRMADA"
+                            ? `<button class="danger" onclick="anularVenta(${v.id})">Anular</button>` : ""}
+                    </td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    function verVenta(id) {
+        const v = ventas.find((venta) => venta.id === id);
+        if (!v) return;
+        abrirModal(`Venta #${v.id}`, `
+            <p class="text-muted" style="margin-top:0;">
+                ${formatearFecha(v.fecha)} · Cliente: ${escapeHtml(v.cliente || "-")} ·
+                Vendedor: ${escapeHtml(v.usuarioNombre)} · ${badgeEstado(v.estado)}
+            </p>
+            ${tablaDetalleItems(v.items, "Precio unit.")}
+            <div class="total-linea"><span class="text-muted">Total</span><strong>${formatearMoneda(v.total)}</strong></div>
+        `);
+    }
+
+    async function anularVenta(id) {
+        if (!confirm(`¿Anular la venta #${id}? Los productos vuelven al stock.`)) return;
+        ocultarAlerta("alerta");
+        try {
+            await Api.post(`/ventas/${id}/anular`);
+            mostrarExito("exito", `Venta #${id} anulada. El stock fue repuesto.`);
+            await Promise.all([cargarVentas(), cargarProductos()]);
+            actualizarAlertaStock();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    document.getElementById("btn-agregar").addEventListener("click", () => editor.agregar());
+
+    document.getElementById("form-venta").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const items = editor.obtenerItems();
+        if (items.length === 0) {
+            mostrarError("alerta", "Agregá al menos un producto a la venta");
+            return;
+        }
+
+        const payload = {
+            cliente: document.getElementById("venta-cliente").value.trim(),
+            items: items.map((i) => ({ productoId: i.productoId, cantidad: i.cantidad })),
+        };
+
+        const boton = document.getElementById("btn-confirmar");
+        boton.disabled = true;
+        try {
+            const venta = await Api.post("/ventas", payload);
+            mostrarExito("exito", `Venta #${venta.id} registrada por ${formatearMoneda(venta.total)}`);
+            document.getElementById("form-venta").reset();
+            editor.limpiar();
+            editor.agregar();
+            await Promise.all([cargarVentas(), cargarProductos()]);
+            actualizarAlertaStock();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        } finally {
+            boton.disabled = false;
+        }
+    });
+
+    (async function init() {
+        try {
+            await cargarProductos();
+            editor.agregar();
+            await cargarVentas();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    })();
+</script>
+
+</body>
+</html>

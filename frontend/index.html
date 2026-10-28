@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ingresar - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="login-page">
+
+<div class="login-card">
+    <h1>📋 Gestión de Inventario</h1>
+    <p class="subtitle">Tecnicatura Universitaria en Programación - UTN Villa María</p>
+
+    <div class="login-tabs">
+        <button id="tab-login" class="active" type="button">Ingresar</button>
+        <button id="tab-registro" type="button">Crear cuenta</button>
+    </div>
+
+    <div id="alerta" class="alert error hidden"></div>
+
+    <form id="form-login">
+        <div style="margin-bottom: 0.9rem;">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" maxlength="100" required autocomplete="username">
+        </div>
+        <div style="margin-bottom: 0.9rem;">
+            <label for="login-password">Contraseña</label>
+            <input type="password" id="login-password" maxlength="72" required autocomplete="current-password">
+        </div>
+        <button type="submit" style="width:100%;">Ingresar</button>
+    </form>
+
+    <form id="form-registro" class="hidden">
+        <div style="margin-bottom: 0.9rem;">
+            <label for="reg-nombre">Nombre completo</label>
+            <input type="text" id="reg-nombre" maxlength="80" required>
+        </div>
+        <div style="margin-bottom: 0.9rem;">
+            <label for="reg-email">Email</label>
+            <input type="email" id="reg-email" maxlength="100" required>
+        </div>
+        <div style="margin-bottom: 0.9rem;">
+            <label for="reg-password">Contraseña (mín. 6 caracteres)</label>
+            <input type="password" id="reg-password" maxlength="72" required minlength="6">
+        </div>
+        <button type="submit" style="width:100%;">Crear cuenta</button>
+    </form>
+
+    <div class="demo-hint">
+        <strong>Usuarios de prueba</strong> (se crean automáticamente):<br>
+        Admin: admin@inventario.com / admin123<br>
+        Empleado: empleado@inventario.com / empleado123
+    </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script>
+    if (Api.isAutenticado()) {
+        window.location.href = "dashboard.html";
+    }
+
+    const tabLogin = document.getElementById("tab-login");
+    const tabRegistro = document.getElementById("tab-registro");
+    const formLogin = document.getElementById("form-login");
+    const formRegistro = document.getElementById("form-registro");
+    const alerta = document.getElementById("alerta");
+
+    function ocultarAlerta() { alerta.classList.add("hidden"); }
+    function mostrarError(msg) {
+        alerta.textContent = msg;
+        alerta.classList.remove("hidden");
+    }
+
+    tabLogin.addEventListener("click", () => {
+        tabLogin.classList.add("active");
+        tabRegistro.classList.remove("active");
+        formLogin.classList.remove("hidden");
+        formRegistro.classList.add("hidden");
+        ocultarAlerta();
+    });
+
+    tabRegistro.addEventListener("click", () => {
+        tabRegistro.classList.add("active");
+        tabLogin.classList.remove("active");
+        formRegistro.classList.remove("hidden");
+        formLogin.classList.add("hidden");
+        ocultarAlerta();
+    });
+
+    formLogin.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta();
+        const email = document.getElementById("login-email").value.trim();
+        const password = document.getElementById("login-password").value;
+
+        try {
+            const respuesta = await Api.post("/auth/login", { email, password });
+            Api.setSession(respuesta);
+            window.location.href = "dashboard.html";
+        } catch (err) {
+            mostrarError(err.message);
+        }
+    });
+
+    formRegistro.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta();
+        const nombre = document.getElementById("reg-nombre").value.trim();
+        const email = document.getElementById("reg-email").value.trim();
+        const password = document.getElementById("reg-password").value;
+
+        try {
+            const respuesta = await Api.post("/auth/registro", { nombre, email, password });
+            Api.setSession(respuesta);
+            window.location.href = "dashboard.html";
+        } catch (err) {
+            mostrarError(err.message);
+        }
+    });
+</script>
+
+</body>
+</html>

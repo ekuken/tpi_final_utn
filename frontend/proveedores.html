@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proveedores - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Proveedores</h1>
+                <p>Administrá los proveedores del comercio</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3 id="form-titulo">Nuevo proveedor</h3>
+            <form id="form-proveedor">
+                <input type="hidden" id="proveedor-id">
+                <div class="form-grid">
+                    <div>
+                        <label for="proveedor-nombre">Nombre / Razón social</label>
+                        <input type="text" id="proveedor-nombre" maxlength="100" required>
+                    </div>
+                    <div>
+                        <label for="proveedor-contacto">Persona de contacto</label>
+                        <input type="text" id="proveedor-contacto" maxlength="80">
+                    </div>
+                    <div>
+                        <label for="proveedor-telefono">Teléfono</label>
+                        <input type="text" id="proveedor-telefono" maxlength="20">
+                    </div>
+                    <div>
+                        <label for="proveedor-email">Email</label>
+                        <input type="email" id="proveedor-email" maxlength="100">
+                    </div>
+                    <div>
+                        <label for="proveedor-direccion">Dirección</label>
+                        <input type="text" id="proveedor-direccion" maxlength="150">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Guardar</button>
+                    <button type="button" class="secondary hidden" id="btn-cancelar">Cancelar edición</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0;">Listado de proveedores</h3>
+            <table>
+                <thead>
+                    <tr><th>Nombre</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th class="text-right">Acciones</th></tr>
+                </thead>
+                <tbody id="tbody-proveedores">
+                    <tr><td colspan="5" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+    initLayout("proveedores");
+
+    const form = document.getElementById("form-proveedor");
+    const btnCancelar = document.getElementById("btn-cancelar");
+
+    let proveedores = [];
+
+    async function cargarProveedores() {
+        try {
+            proveedores = await Api.get("/proveedores");
+            const tbody = document.getElementById("tbody-proveedores");
+
+            if (proveedores.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No hay proveedores cargados todavía</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = proveedores.map((p) => `
+                <tr>
+                    <td>${escapeHtml(p.nombre)}</td>
+                    <td>${escapeHtml(p.contacto || "-")}</td>
+                    <td>${escapeHtml(p.telefono || "-")}</td>
+                    <td>${escapeHtml(p.email || "-")}</td>
+                    <td class="text-right table-actions" style="justify-content:flex-end;">
+                        <button class="secondary" onclick="editarProveedor(${p.id})">Editar</button>
+                        <button class="danger" onclick="eliminarProveedor(${p.id})">Eliminar</button>
+                    </td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    function editarProveedor(id) {
+        const p = proveedores.find((prov) => prov.id === id);
+        if (!p) return;
+
+        document.getElementById("proveedor-id").value = p.id;
+        document.getElementById("proveedor-nombre").value = p.nombre;
+        document.getElementById("proveedor-contacto").value = p.contacto || "";
+        document.getElementById("proveedor-telefono").value = p.telefono || "";
+        document.getElementById("proveedor-email").value = p.email || "";
+        document.getElementById("proveedor-direccion").value = p.direccion || "";
+        document.getElementById("form-titulo").textContent = "Editar proveedor";
+        btnCancelar.classList.remove("hidden");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function resetForm() {
+        form.reset();
+        document.getElementById("proveedor-id").value = "";
+        document.getElementById("form-titulo").textContent = "Nuevo proveedor";
+        btnCancelar.classList.add("hidden");
+    }
+
+    btnCancelar.addEventListener("click", resetForm);
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const id = document.getElementById("proveedor-id").value;
+        const payload = {
+            nombre: document.getElementById("proveedor-nombre").value.trim(),
+            contacto: document.getElementById("proveedor-contacto").value.trim(),
+            telefono: document.getElementById("proveedor-telefono").value.trim(),
+            email: document.getElementById("proveedor-email").value.trim(),
+            direccion: document.getElementById("proveedor-direccion").value.trim(),
+        };
+
+        try {
+            if (id) {
+                await Api.put(`/proveedores/${id}`, payload);
+                mostrarExito("exito", "Proveedor actualizado correctamente");
+            } else {
+                await Api.post("/proveedores", payload);
+                mostrarExito("exito", "Proveedor creado correctamente");
+            }
+            resetForm();
+            cargarProveedores();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    });
+
+    async function eliminarProveedor(id) {
+        if (!confirm("¿Seguro que querés eliminar este proveedor?")) return;
+        try {
+            await Api.del(`/proveedores/${id}`);
+            mostrarExito("exito", "Proveedor eliminado");
+            cargarProveedores();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    cargarProveedores();
+</script>
+
+</body>
+</html>

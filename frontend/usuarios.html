@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usuarios - Gestión de Inventario</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <main class="main-content">
+        <div class="topbar">
+            <div>
+                <h1>Usuarios</h1>
+                <p>Gestión de usuarios y permisos (solo administradores)</p>
+            </div>
+        </div>
+
+        <div id="alerta" class="alert error hidden"></div>
+        <div id="exito" class="alert success hidden"></div>
+
+        <div class="card">
+            <h3>Nuevo usuario</h3>
+            <form id="form-usuario">
+                <div class="form-grid">
+                    <div>
+                        <label for="usr-nombre">Nombre completo</label>
+                        <input type="text" id="usr-nombre" maxlength="80" required>
+                    </div>
+                    <div>
+                        <label for="usr-email">Email</label>
+                        <input type="email" id="usr-email" maxlength="100" required>
+                    </div>
+                    <div>
+                        <label for="usr-password">Contraseña (mín. 6 caracteres)</label>
+                        <input type="password" id="usr-password" maxlength="72" required minlength="6">
+                    </div>
+                    <div>
+                        <label for="usr-rol">Rol</label>
+                        <select id="usr-rol">
+                            <option value="EMPLEADO">Empleado</option>
+                            <option value="ADMIN">Administrador</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit">Crear usuario</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0;">Listado de usuarios</h3>
+            <table>
+                <thead>
+                    <tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th class="text-right">Acciones</th></tr>
+                </thead>
+                <tbody id="tbody-usuarios">
+                    <tr><td colspan="5" class="empty-state">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/api.js"></script>
+<script src="js/layout.js"></script>
+<script>
+    initLayout("usuarios");
+
+    if (!Api.isAdmin()) {
+        document.querySelector(".main-content").innerHTML =
+            '<div class="alert error">No tenés permisos para acceder a esta sección.</div>';
+        throw new Error("Acceso restringido");
+    }
+
+    async function cargarUsuarios() {
+        try {
+            const usuarios = await Api.get("/usuarios");
+            const tbody = document.getElementById("tbody-usuarios");
+
+            tbody.innerHTML = usuarios.map((u) => `
+                <tr>
+                    <td>${escapeHtml(u.nombre)}</td>
+                    <td>${escapeHtml(u.email)}</td>
+                    <td><span class="badge neutral">${u.rol}</span></td>
+                    <td><span class="badge ${u.activo ? "ok" : "danger"}">${u.activo ? "Activo" : "Inactivo"}</span></td>
+                    <td class="text-right table-actions" style="justify-content:flex-end;">
+                        <button class="secondary" onclick="cambiarEstado(${u.id}, ${!u.activo})">
+                            ${u.activo ? "Desactivar" : "Activar"}
+                        </button>
+                        <button class="danger" onclick="eliminarUsuario(${u.id})">Eliminar</button>
+                    </td>
+                </tr>
+            `).join("");
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    document.getElementById("form-usuario").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        ocultarAlerta("alerta");
+
+        const payload = {
+            nombre: document.getElementById("usr-nombre").value.trim(),
+            email: document.getElementById("usr-email").value.trim(),
+            password: document.getElementById("usr-password").value,
+            rol: document.getElementById("usr-rol").value,
+        };
+
+        try {
+            await Api.post("/usuarios", payload);
+            mostrarExito("exito", "Usuario creado correctamente");
+            e.target.reset();
+            cargarUsuarios();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    });
+
+    async function cambiarEstado(id, nuevoEstado) {
+        try {
+            await Api.patch(`/usuarios/${id}/estado`, { activo: nuevoEstado });
+            mostrarExito("exito", "Estado actualizado");
+            cargarUsuarios();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    async function eliminarUsuario(id) {
+        if (!confirm("¿Seguro que querés eliminar este usuario?")) return;
+        try {
+            await Api.del(`/usuarios/${id}`);
+            mostrarExito("exito", "Usuario eliminado");
+            cargarUsuarios();
+        } catch (err) {
+            mostrarError("alerta", err.message);
+        }
+    }
+
+    cargarUsuarios();
+</script>
+
+</body>
+</html>
